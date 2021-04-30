@@ -1,4 +1,11 @@
 [BASIC]
 
+disable=no-member,
+        missing-module-docstring,
+        arguments-differ
+
 good-names=x,
-           y
+           y,
+           y0,
+           y1,
+           y2

@@ -1,6 +1,5 @@
 # pylint: disable = no-member
 """snake game"""
-import time
 import random
 
 from typing import List
@@ -8,73 +7,33 @@ from typing import List
 import pygame
 import numpy as np
 
-GRID_SIZE = 20
-GAME_SIZE = 600
-
-FONT_COLOUR: tuple = (0, 0, 255)
-BACKGROUND_COLOUR = (255, 255, 255)
-SNAKE_COLOUR = (0, 0, 0)
-FOOD_COLOUR = (255, 0, 0)
-
-SMALL_FONT: tuple = ('freesansbold.ttf', 20)
-LARGE_FONT: tuple = ('freesansbold.ttf', 130)
-
-SPEED = 15
-
-class GameOver(Exception):
-    """exception to raise if game is over!"""
+from base import BaseGame, GameOver, BaseConfig
+from grid import Grid
 
 
-class GameGrid:
-    """grid"""
+class SnakeConfig(BaseConfig):
+    """configurations for snake game"""
 
-    def __init__(self,
-                 game_size: int = GAME_SIZE,
-                 grid_size: int = GRID_SIZE) -> None:
-        """
-        initialise GridTransformer object
+    NAME = 'Snake'
+    SPEED = 15
+    BACKGROUND_COLOUR = (255, 255, 255)
+    FONT_COLOUR: tuple = (0, 0, 255)
 
+    GAME_WIDTH: int = 600
+    GAME_HEIGHT: int = 600
 
-        Parameters
-        ----------
-        game_size : int, optional
-            the size of the game square, by default GAME_SIZE
-        grid_size : int, optional
-            the number of blocks to split the game into, by default GRID_SIZE
-        """
+    BLOCK_SIZE: int = 30
 
-        self._game_size = game_size
-        self._grid_size = grid_size
-        self._block_size = game_size / grid_size
-
-        self._set_grid()
-
-    def _set_grid(self)-> None:
-        """set grid as 2D np array of coordinates of bottom left corners"""
-        vector = np.array([self.block_size * i for i in range(self.grid_size)])
-        self._grid = np.array(np.meshgrid(vector, vector)).T
-
-    def __getitem__(self, item: tuple) -> tuple:
-        """return the pixel-coordinates for the given game coordinates"""
-        return self._grid[item]
-
-    @property
-    def grid_size(self) -> int:
-        """return the size of the grid"""
-        return self._grid_size
-
-    @property
-    def block_size(self) -> int:
-        """return the size of each block"""
-        return self._block_size
+    SNAKE_COLOUR: tuple = (0, 0, 0)
+    FOOD_COLOUR: tuple = (255, 0, 0)
 
 
 class Food:
     """the food"""
-    def __init__(self, game_grid: GameGrid) -> None:
+    def __init__(self, grid: Grid, colour: tuple[int, int, int]) -> None:
         """initialise a food object"""
-        self.colour = FOOD_COLOUR
-        self.game_grid = game_grid
+        self.grid = grid
+        self.colour = colour
         self.set_location([(0, 0)])
 
     @property
@@ -88,16 +47,16 @@ class Food:
         ensures this falls within the game-grid and does not overlap with the
         snake
         """
-        while (loc := (random.choice(range(GRID_SIZE)),
-                       random.choice(range(GRID_SIZE)))) in body:
+        while (loc := (random.choice(range(self.grid.width)),
+                       random.choice(range(self.grid.height)))) in body:
             pass
 
         self._location = loc
 
     def draw(self, surface: pygame.Surface) -> None:
         """draw the food"""
-        translated = self.game_grid[self.location]
-        radius = self.game_grid.block_size/2
+        translated = self.grid[self.location]
+        radius = self.grid.block_size/2
         center = [i+radius  for i in translated]
         pygame.draw.circle(surface,
                            self.colour,
@@ -108,22 +67,46 @@ class Food:
 class Snake:
     """the snake"""
 
-    def __init__(self, game_grid: GameGrid) -> None:
+    def __init__(self, grid: Grid, colour: tuple[int, int, int]) -> None:
         """initialise a snake object"""
-        self.colour = SNAKE_COLOUR
-        self.game_grid = game_grid
-        self.body = [(random.choice(range(GRID_SIZE)),
-                      random.choice(range(GRID_SIZE)))]
+        self.colour = colour
+        self.grid = grid
+        self.body = [(random.choice(range(self.grid.width)),
+                      random.choice(range(self.grid.height)))]
         self.set_direction(pygame.K_UP)
 
     def draw(self, surface: pygame.Surface) -> None:
         """draw the snake"""
         for segment in self.body:
-            translated = self.game_grid[segment]
-            rect_coords = list(translated) + [self.game_grid.block_size]*2
+            translated = self.grid[segment]
+            rect_coords = list(translated) + [self.grid.block_size]*2
             pygame.draw.rect(surface,
                              self.colour,
                              rect_coords)
+
+    @staticmethod
+    def _check_wrap(loc: int, no_blocks: int):
+        """
+        check if an index is outside the range of blocks and so should wrap
+        to the other side
+
+        Parameters
+        ----------
+        loc : int
+            the location
+        no_blocks : int
+            the max number of blocks
+
+        Returns
+        -------
+        int
+            new location
+        """
+        if loc < 0:
+            loc = no_blocks-1
+        elif loc >= no_blocks:
+            loc = 0
+        return loc
 
     def update_location(self, food: Food) -> None:
         """
@@ -141,10 +124,10 @@ class Snake:
 
         new_head = lookup[self.direction]
 
-        # so you appear on the other side of the game
-        # im sure there is a better way of doing this!
-        new_head = tuple(i if i < GRID_SIZE else 0 for i in new_head)
-        new_head = tuple(i if i >= 0 else GRID_SIZE-1 for i in new_head)
+        new_x, new_y = new_head
+        new_x = self._check_wrap(new_x, self.grid.width)
+        new_y = self._check_wrap(new_y, self.grid.height)
+        new_head = (new_x, new_y)
 
         self.body.insert(0, new_head)
 
@@ -186,125 +169,37 @@ class Snake:
         return None
 
 
-class Game:
+class SnakeGame(BaseGame):
     """the game"""
     # pylint: disable=too-many-instance-attributes
 
-    def __init__(self) -> None:
+    def __init__(self, config: SnakeConfig = SnakeConfig()) -> None:
         """instantiate game"""
-        pygame.init()
-        self.surface = pygame.display.set_mode((GAME_SIZE, GAME_SIZE))
-        pygame.display.set_caption('Snake')
 
-        self.grid = GameGrid()
-
-        self.snake = Snake(self.grid)
-        self.food = Food(self.grid)
-
-        self.score = 0
-        self.high_score = 0
-        self.clock = pygame.time.Clock()
-
-        self.game_over = False
-
-        self.draw()
+        self.config = config
+        self.grid = Grid(self.config.GAME_WIDTH,
+                         self.config.GAME_HEIGHT,
+                         self.config.BLOCK_SIZE)
+        self.snake = Snake(self.grid, self.config.SNAKE_COLOUR)
+        self.food = Food(self.grid, self.config.FOOD_COLOUR)
+        super().__init__(self.config)
 
     def restart(self) -> None:
         """reset game to starting parameters"""
-        self.snake = Snake(self.grid)
-        self.food = Food(self.grid)
-        self.score = 0
-        self.game_over = False
-
-
-    @staticmethod
-    def get_center() -> tuple[float, float]:
-        """return the centre of the game"""
-        return GAME_SIZE/2, GAME_SIZE/2
+        super().restart()
+        self.snake = Snake(self.grid, self.config.SNAKE_COLOUR)
+        self.food = Food(self.grid, self.config.FOOD_COLOUR)
 
     def update(self) -> None:
         """update the state of th game"""
-        try:
-            self.snake.update_location(self.food)
-            self.score = len(self.snake.body) - 1
-            self.high_score = max(self.score, self.high_score)
-        except GameOver:
-            self.game_over = True
+        self.snake.update_location(self.food)
+        self.score = len(self.snake.body) - 1
+        self.high_score = max(self.score, self.high_score)
 
-    def draw(self) -> None:
+    def _draw(self) -> None:
         """draw state of game"""
-        self.surface.fill(BACKGROUND_COLOUR)
         self.snake.draw(self.surface)
         self.food.draw(self.surface)
-        self.display_score()
-
-        if self.game_over:
-            self.display_game_over()
-            pygame.display.update()
-            time.sleep(1)
-            self.replay()
-            self.restart()
-            self.draw()
-
-        pygame.display.update()
-        self.clock.tick(SPEED)
-
-    @staticmethod
-    def quit() -> None:
-        """quit the game"""
-        pygame.quit()
-
-    def replay(self) -> None:
-        """wait for user input to replay game"""
-        replay = False
-        while not replay:
-            for event in pygame.event.get([pygame.KEYDOWN,
-                                           pygame.KEYUP,
-                                           pygame.QUIT]):
-                if event.type == pygame.QUIT:
-                    self.quit()
-                elif event.type == pygame.KEYDOWN:
-                    replay = True
-
-            self.clock.tick()
-
-    def _display_text(self,
-                      text: str,
-                      font: tuple[str, int],
-                      center: tuple[int, int] = None,
-                      colour: tuple[int, int, int] = FONT_COLOUR) -> None:
-        """
-        display text on the pygame surface
-
-        Parameters
-        ----------
-        text : str
-            the text to displat
-        font : tuple[str, int]
-            the font to use (font-name, size)
-        center : tuple[int, int], optional
-            where to centre the text, by default None
-        colour : tuple[int, int, int], optional
-            text colour, by default FONT_COLOUR
-        """
-        font = pygame.font.Font(*font)
-        text_surface = font.render(text, True, colour)
-        text_rect = text_surface.get_rect()
-        if center:
-            text_rect.center = center
-        self.surface.blit(text_surface, text_rect)
-
-    def display_score(self) -> None:
-        """display the game score"""
-        self._display_text( f'Score: {self.score}', SMALL_FONT, (45, 15))
-
-    def display_game_over(self) -> None:
-        """display the game over message"""
-        x, y = self.get_center()
-        self._display_text('Game Over!', LARGE_FONT, (x, y-50))
-        self._display_text(f'Score: {self.score} Highscore: {self.high_score}',
-                           SMALL_FONT, (x, y+35))
-        self._display_text('Press any key to continue.', SMALL_FONT, (x, y+75))
 
     def play(self):
         """the game loop"""
@@ -314,10 +209,14 @@ class Game:
                     self.quit()
                 if event.type == pygame.KEYDOWN:
                     self.snake.set_direction(event.key)
-            self.update()
+            try:
+                self.update()
+            except GameOver:
+                self.game_over = True
             self.draw()
 
 
+
 if __name__ == '__main__':
-    game = Game()
+    game = SnakeGame()
     game.play()
